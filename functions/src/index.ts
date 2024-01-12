@@ -1,19 +1,48 @@
-/**
- * Import function triggers from their respective submodules:
- *
- * import {onCall} from "firebase-functions/v2/https";
- * import {onDocumentWritten} from "firebase-functions/v2/firestore";
- *
- * See a full list of supported triggers at https://firebase.google.com/docs/functions
- */
+import * as functions from 'firebase-functions';
+import * as admin from 'firebase-admin';
+import * as cors from 'cors';
 
-import { onRequest } from "firebase-functions/v2/https";
-import * as logger from "firebase-functions/logger";
+const serviceAccount = require('./serviceAccount.json');
 
-// Start writing functions
-// https://firebase.google.com/docs/functions/typescript
-
-export const helloWorld = onRequest((request, response) => {
-    logger.info("Hello logs!", { structuredData: true });
-    response.send("Hello from Firebase!");
+admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount),
 });
+
+const db = admin.firestore();
+const corsHandler = cors({ origin: true });
+
+
+const sendEmail = async (email: string) => {
+    try {
+        const data = {
+            'to': email,
+            'message': {
+                'subject': 'Asunto del correo',
+                'text': 'Texto del correo',
+                'html': `<p>Hello World!</p>`,
+            }
+        }
+        const emailRef = db.collection('email');
+        await emailRef.add(data);
+    } catch (error) {
+        throw new Error("Ocurrió un error al enviar el correo");
+    }
+}
+
+exports.register = functions.https.onRequest(async (request, response) => {
+    try {
+        corsHandler(request, response, async () => {
+            const usersRef = db.collection('users');
+            const { email } = request.body;
+            await usersRef.doc(email).set(request.body);
+            const resp = { 'message': 'Registrado' };
+            // Aquí ejecutamos la función para enviar el correo
+            sendEmail(email);
+            response.status(201).json(resp);
+        });
+    } catch (error) {
+        response.status(500).json({ message: `${error}` });
+    }
+});
+
+
